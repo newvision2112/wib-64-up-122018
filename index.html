@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <title>What's in Blue</title>
+    <link href="jquery.mobile.custom.structure.css" rel="stylesheet" type="text/css" />
+    <link href="retina.css" rel="stylesheet" type="text/css" />
+    <link href="jquery.mobile.headerfooter.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" src="jquery-1.7.2.min.js"></script>
+    <script type="text/javascript" src="jquery.mobile-1.3.1.min.js"></script>
+    <script type="text/javascript" src="phonegap.js"></script>
+    <script type="text/javascript" src="jquery.touchclick.js"></script>
+    <script type="text/javascript">
+        //Build Notes: based on v26h UX. Updated core functions fnCategories, fnArticles, fnContent to deal with dynamic xml IbC list 
+        //Global Variables and Parameters
+        categoryFeed = new Array();
+        connError1 = '<div id="error">It appears you may have a slow or weak Internet connection. Retrying to fetch contents...</div>';
+        connError2 = '<div id="error"><div>No connection</div><br /><div id="btn_retry"><img src="button_retry.gif" /></div></div>';
+        connError3 = '<div id="error">It appears you do not have an Internet connection. Please try again when you have a signal.</div>';
+        connError4 = '<div id="error">There appears to be a problem with this category. Please try again later.</div>';
+        connState = '';
+        pixelRatio = '';
+        connTime1 = 10 * 1000;
+        connTime2 = 15 * 1000;
+        footer_btns = '<div id="footer" data-role="footer" data-position="fixed"><div data-touchclick="true" class="bottom_buttons" id="btn_category">Read Insights by Category</div></div>';
+        g_param = '';
+        g_params = '';
+        g_ID = '';
+        g_Feed = 'Home';
+        imgLoader = '<div id="loader"><img src="ajax-loader.gif" /></div>';
+        mainList = '';
+        mainFeed = new Array();
+        myUrl = '';
+        page = '';
+        paramFeed = '';
+        pixelRatio = '';
+        platform = '';
+        shareLink = '';
+        shareTitle = '';
+        //set JQM default page transition to none
+        $(document).bind("mobileinit", function () {
+            $.mobile.defaultPageTransition = "none"
+        });
+        document.addEventListener("deviceready", onDeviceReady, false);
+        function onDeviceReady() {
+            fnCheckConnection();
+            fnDevicePlatform();
+            navigator.splashscreen.hide();
+            document.addEventListener("backbutton", onBackKeyDown, false);
+            //check device version and apply header_fix class if necessary
+            if (device.platform == 'iOS' && device.version == '5.1.1') {
+                $('#red').addClass("header_fix");
+            }
+        }
+        function fnCheckConnection() {
+            var networkState = navigator.network.connection.type;
+            var states = {};
+            states[Connection.UNKNOWN] = 1;
+            states[Connection.ETHERNET] = 1;
+            states[Connection.WIFI] = 1;
+            states[Connection.CELL_2G] = 1;
+            states[Connection.CELL_3G] = 1;
+            states[Connection.CELL_4G] = 1;
+            states[Connection.NONE] = 0;
+            connState = states[networkState];
+        }
+        //Resets the html in the DOM to the initial state
+        function fnPageReset() {
+            $('#red').hide();
+            $('#main').hide();
+            $('#categories').hide();
+            $('#category_title').hide();
+            $('#articles').hide();
+            $('#content').hide();
+            $('#red').show();
+            $('#error').remove();
+            $('#feedMain > ul').html('');
+            $('#category_title').html('');
+            $('#sections > ul').html('');
+            $('#top_title').html('');
+            $('#artfeed > ul').html('');
+            $('#story_pubDate').html('');
+            $('#story_title').html('');
+            $('#story_content').html('');
+            $('#top_title').remove();
+            $('.title_link').remove();
+            $('.category_link').remove();
+            $('.sub_category_link').remove();
+        }
+        //Email icon toggle function
+        function fnEmailToggle() {
+            //test page and set class attribute for email element
+            if (page == 'mainContent' || page == 'artContent') {
+                $('#email').removeClass('icon_blank').addClass('icon_email');
+            }
+            else {
+                $('#email').removeClass('icon_email').addClass('icon_blank');
+            }
+        }
+        //Refresh/Back button toggle function
+        function fnRefreshToggle() {
+            if (page == 'Main') {
+                $('#back').hide();
+                $('#refresh').show();
+            }
+            else {
+                $('#back').show();
+                $('#refresh').hide();
+            }
+        }
+        //Creates the footer in the DOM
+        function fnFooterCreate() {
+            $('#plchdr_footer').append(footer_btns);
+            $('#plchdr_footer').trigger('create');
+        }
+        //Hardware and software back button functionality
+        function fnBackArticles() {
+            fnPageReset();
+            $('#categories').prepend('<div id="category_title" class="top_title"></div>');
+            fnEmailToggle();
+            fnLoadIbC();
+            fnShowIbC();
+        }
+        function fnBackArtContent() {
+            fnPageReset();
+            fnHideLoader();
+            fnArticles(myUrl);
+            fnEmailToggle();
+        }
+        function fnBackMain() {
+            page = 'Main';
+            fnPageReset();
+            fnLoadMain();
+            $('#main').show();
+            $('#feedMain').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(400);
+            $('#red').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(400);
+            fnFooterCreate();
+            fnRefreshToggle();
+            fnEmailToggle();
+        }
+        //Android hardware back button functionality
+        function onBackKeyDown(e) {
+            try {
+                var activePage = page;
+                if (activePage === "Articles") {
+                    fnBackArticles();
+                } else if (activePage == 'artContent') {
+                    fnBackArtContent();
+                } else if (activePage == 'mainContent') {
+                    fnBackMain();
+                } else if (activePage == 'Categories') {
+                    fnBackMain();
+                } else if (activePage == 'Main') {
+                    function checkButtonSelection(iValue) {
+                        if (iValue == 2) {
+                            navigator.app.exitApp();
+                        }
+                    }
+                    e.preventDefault();
+                    navigator.notification.confirm(
+                    "Are you sure you want to leave the program?",
+                    checkButtonSelection,
+                    'Exit?:',
+                    'Cancel,OK');
+                } else {
+                    navigator.app.backHistory();
+                }
+            } catch (e) { console.log('Exception: ' + e, 3); }
+        }
+        //Display loading graphic
+        function fnShowLoader() {
+            $('#loading').append(imgLoader).show();
+        }
+        //Hide loading graphic
+        function fnHideLoader() {
+            $('#loading').html('').hide();
+        }
+        //Write the Home stack to Main
+        function fnLoadMain() {
+            for (x = 1; x < mainFeed.length; x++) {
+                var mainLoad = '<div class="main_link" id="main' + x + '"><a href="#"  data-article =' + x + ' data-feed="Home" id="mainl' + x + '">';
+                mainLoad += '<div class="postDate">posted on </div><div class="main_pubDate" id="pubDate' + x + '"><a href="#"  data-article =' + x + ' data-feed="Home" id="mainp' + x + '">' + mainFeed[x].pubDate + '</a></div>';
+                mainLoad += '<div class="main_title" id="feed' + x + '"><a href="#"  data-article =' + x + ' data-feed="Home" id="maint' + x + '">' + mainFeed[x].title + '</a></div>';
+                mainLoad += '<div class="main_blurb" id="blurb' + x + '"><a href="#"  data-article =' + x + ' data-feed="Home" id="mainb' + x + '">' + mainFeed[x].content.substring(0, 150) + '...' + '</a></div></div>';
+                $('#feedMain > ul').append(mainLoad);
+            }
+        }
+        //Main story object used for populating main page feed and offline browsing
+        function objMainStory(title, pubDate, content, link) {
+            this.title = title;
+            this.pubDate = pubDate;
+            this.content = content;
+            this.link = link;
+        }
+        //This function populates the main feed on load.
+        function fnMainAjax() {
+            $('#error').remove();
+            try {
+                fnShowLoader();
+                var i = 0;
+                $.ajax({
+                    url: 'https://www.securitycouncilreport.org/a_wib_app/homepage.xml',
+                    dataType: 'xml',
+                    timeout: connTime2,
+                    success: function (myxml) {
+                        $(myxml).find('item').each(function () {
+                            i += 1;
+                            $(this).find('title').each(function () {
+                                title = $(this).text();
+                            });
+                            $(this).find('pubDate').each(function () {
+                                pubDate = $(this).text();
+                            });
+                            $(this).find('description').each(function () {
+                                content = $(this).text();
+                            });
+                            $(this).find('link').each(function () {
+                                link = $(this).text();
+                            });
+                            mainFeed[i] = new objMainStory(title, pubDate, content, link);
+                        });
+                        fnLoadMain();
+                        fnHideLoader();
+                        $('#error').remove();
+                        $('#main').show();
+                        $('#feedMain').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(400);
+                        $('#red').fadeIn(400);
+                    },
+                    error: function (xhr, ajaxOptions, thrownError) {
+                        fnHideLoader();
+                        $('#red').append(connError2);
+                        $('#btn_retry').trigger('create')
+                        $('#red').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(400);
+                    }
+                });
+            }
+            catch (err) {
+                alert("error: " + error);
+            }
+            finally {
+            }
+        }
+        //send proper url from Category to the fnArticles
+        function fnFindCategoryLink(i) {
+            if (categoryFeed[i].subtitle == '') { paramFeed = categoryFeed[i].title; }
+            else { paramFeed = categoryFeed[i].subtitle; }
+            myUrl = $.trim(categoryFeed[i].link);
+        }
+        var categoryLoad = '';
+        //Populates Main stack via the categoryFeed array
+        function fnLoadIbC() {
+            for (x = 1; x < categoryFeed.length; x++) {
+                var categoryTitle = categoryFeed[x].title;
+                if (categoryFeed[x].subtitle == '') { $('#sections > ul').append('<div class="category_link" id="category' + x + '"><a href="#" data-role="button" class="article_link"  id="category' + x + '" data-feed="' + categoryFeed[x].title + '" data-catid="' + x + '">' + categoryFeed[x].title + '</a></div>'); }
+                if (categoryTitle == categoryFeed[x].title && categoryFeed[x].subtitle != '') {
+                    $('#sections > ul').append('<div class="sub_category_link" id="subcategory' + x + '"><a href="#" data-role="button" class="article_link"  id="category' + x + '" data-feed="' + categoryFeed[x].subtitle + '" data-catid="' + x + '">' + categoryFeed[x].subtitle + '</a></div>');
+                }
+            }
+        }
+        //show IbC
+        function fnShowIbC() {
+            page = "Categories";
+            $('#error').remove();
+            $('#categories').show();
+            $('#category_title').html("Insights by Category").fadeIn(500);
+            $('#sections').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(500);
+            $('#red').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(500);
+        }
+        //Category object used for populating IbC stack
+        function objCategoryList(t, l, s) {
+            this.title = t;
+            this.link = l;
+            this.subtitle = s;
+        }
+        //Categories
+        function fnCategories() {
+            fnPageReset();
+            fnRefreshToggle();
+            var sections = '';
+            var c = 0;
+            try {
+                fnShowLoader();
+                $.ajax({
+                    url: 'https://www.securitycouncilreport.org/a_wib_app/category_list_sub_items_2.xml',
+                    dataType: 'xml',
+                    timeout: connTime1,
+                    success: function (myxml) {
+                        $(myxml).find('item').each(function () {
+                            c += 1;
+                            $(this).find('title').each(function () {
+                                title = $(this).text();
+                            });
+                            $(this).find('link').each(function () {
+                                link = $(this).text();
+                                subtitle = '';
+                            });
+                            categoryFeed[c] = new objCategoryList(title, link, subtitle);
+                            $(this).find('sub').each(function () {
+                                link = '';
+                                $(this).find('subtitle').each(function () {
+                                    c += 1;
+                                    subtitle = $(this).text();
+                                });
+                                $(this).find('sublink').each(function () {
+                                    link = $(this).text();
+                                });
+                                categoryFeed[c] = new objCategoryList(title, link, subtitle);
+                            });
+                        });
+                        fnLoadIbC();
+                        fnHideLoader();
+                        fnShowIbC();
+                    },
+                    error: function (error) {
+                        $('#error').remove();
+                        $('#red').append(connError2);
+                        fnHideLoader();
+                        $('#red').fadeIn(400);
+                    }
+                });
+                $('#sections').trigger('create');
+            }
+            catch (err) {
+                alert("error: " + error);
+            }
+            finally {
+            }
+        }
+        //Articles
+        function fnArticles(feed) {
+            page = "Articles";
+            fnShowLoader();
+            fnRefreshToggle();
+            fnPageReset();
+            $('#articles').prepend('<div id="top_title" class="top_title"></div>');
+            $('#top_title').html(paramFeed);
+            var title = '';
+            var i = 0;
+            try {
+                $.ajax({
+                    url: feed,
+                    timeout: connTime1,
+                    dataType: 'xml',
+                    success: function (myxml) {
+                        $(myxml).find('item').each(function () {
+                            i += 1;
+                            $(this).find("title").each(function () {
+                                title += '<div class="title_link" id="feed' + i + '"><a href="#content" data-role="button" data-article =' + i + ' data-feed="' + paramFeed + '" class="title_link" id="article' + i + '">' + $(this).text() + '</a></div>';
+                            });
+                        });
+                        $('#artFeed > ul').append(title);
+                        fnHideLoader();
+                        $('#articles').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(400);
+                        $('#red').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(400);
+                        $('#top_title').show();
+                        $('#artFeed').show();
+                    },
+                    error: function (error) {
+                        $('#error').remove();
+                        fnHideLoader();
+                        $('#red').append(connError2);
+                        $('#red').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(400);
+                    }
+                });
+            }
+            catch (err) {
+                alert("error: " + error);
+            }
+            finally {
+            }
+        }
+        $('#index').live('pageinit', '[data-role=page]', function () {
+            fnMainAjax();
+        });
+        $('#index').live('pageshow', '[data-role=page]', function () {
+            //Main page load
+            function fnMain() {
+                page = "Main";
+                fnPageReset();
+                fnFooterCreate();
+                fnEmailToggle();
+                fnRefreshToggle();
+                $('#header').trigger('create');
+            }
+            //            if (connState === 0) {
+            //                $('#red').append(connError3);
+            //                $('#red').animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(500);
+            //                $('#back').hide();
+            //                $('#refresh').hide();
+            //            }
+            //            else {
+            fnMain();
+            //            }
+            //refresh button
+            $('#refresh').live('click', function (event) {
+                page = "Main";
+                fnPageReset();
+                fnHideLoader();
+                fnFooterCreate();
+                fnEmailToggle();
+                fnRefreshToggle();
+                fnMainAjax();
+            });
+            //retry button
+            $('#btn_retry').live('click', function (event) {
+                if (page === "Main") { fnMainAjax(); }
+                if (page === "Categories") { fnCategories(); }
+                if (page === "Articles") { fnArticles(g_Feed); }
+                if (page === "artContent") { fnContent(g_ID, g_Feed); }
+            });
+            //Main Content article load function
+            $('[id^=main]').click(function (e) {
+                e.preventDefault();
+                g_ID = $(e.target).jqmData("article");
+                g_Feed = $(e.target).jqmData("feed");
+                if (g_Feed === undefined) {
+                    //alert("if" + g_Feed + g_ID);
+                    g_ID = $(e.target).children().jqmData("article");
+                    g_Feed = $(e.target).children().jqmData("feed");
+                }
+                else {
+                    g_Feed = $(e.target).jqmData("feed");
+                    g_ID = $(e.target).jqmData("article");
+                }
+                $('.main_link').remove();
+                //$('#feedMain').fadeOut();
+                fnEmailToggle();
+                fnRefreshToggle();
+                page = "mainContent";
+                fnContent(g_ID, g_Feed);
+                $('#footer').remove();
+            });
+            //Country/Theme article load function
+            $('[id^=artFeed]').click(function (e) {
+                e.preventDefault();
+                g_ID = $(e.target).jqmData("article");
+                g_Feed = $(e.target).jqmData("feed");
+                if (g_Feed === undefined) {
+                    g_ID = $(e.target).children().jqmData("article");
+                    g_Feed = $(e.target).children().jqmData("feed");
+                }
+                else {
+                    g_Feed = $(e.target).jqmData("feed");
+                    g_ID = $(e.target).jqmData("article");
+                }
+                page = "artContent";
+                fnContent(g_ID, g_Feed);
+            });
+            //Country stack article listing function
+            $('#sections').live('click', '[id^=category]', function (e) {
+                e.preventDefault();
+                g_ID = $(e.target).jqmData("article");
+                g_Feed = $(e.target).jqmData("feed");
+                g_param = $(e.target).jqmData("catid");
+                if (g_param === undefined) {
+                    g_ID = $(e.target).children().jqmData("article");
+                    g_Feed = $(e.target).children().jqmData("feed");
+                    g_param = $(e.target).children().jqmData("catid");
+                }
+                else {
+                    g_Feed = $(e.target).jqmData("feed");
+                    g_ID = $(e.target).jqmData("article");
+                    g_param = $(e.target).jqmData("catid");
+                }
+                fnFindCategoryLink(g_param);
+                fnArticles(myUrl);
+            });
+            //Software back button function
+            $('#back').click(function (e) {
+                if (page === "Articles") {
+                    fnBackArticles();
+                }
+                else if (page === "artContent") {
+                    fnBackArtContent();
+                }
+                else {
+                    fnBackMain();
+                }
+            });
+            //Logo button return to Main function
+            $('#logo').click(function (e) {
+                fnBackMain();
+            });
+            //Footer button to IbC stack
+            $('#footer').live('click', function (e) {
+                e.preventDefault();
+                page = "Categories";
+                $('#footer').remove();
+                $('#category_title').html();
+                fnCategories();
+            });
+            //childbrowser plugin function
+            $('#story a').live('click', function (e) {
+                e.preventDefault();
+                var link = $(e.target).attr('href');
+                var ref = window.open(link, '_blank', 'location=no');
+            });
+            //Share content via email
+            $('#email').click(function (e) {
+                if (device.platform == 'iOS') {
+                    function checkButtonSelection(iValue) {
+                        if (iValue == 2) {
+                            if (shareTitle == '') {
+                                shareTitle = "What's in Blue: Insights on the work of the UN Security Council";
+                                shareLink = 'http://www.whatsinblue.org';
+                            }
+                            window.location.href = 'mailto:?subject=' + shareTitle + '&body=Here is an insight on the Security Council I thought you might find to be of interest: %0D%0A' + shareLink;
+                        }
+                    }
+                    e.preventDefault();
+                    navigator.notification.confirm(
+                    "Leave the app and email this article?",
+                    checkButtonSelection,
+                    'Exit the app',
+                    'Cancel,OK');
+                }
+                else {
+                    if (shareTitle == '') {
+                        shareTitle = "What's in Blue: Insights on the work of the UN Security Council";
+                        shareLink = 'http://www.whatsinblue.org';
+                    }
+                    window.location.href = 'mailto:?subject=' + shareTitle + '&body=Here is an insight on the Security Council I thought you might find to be of interest: %0D%0A' + shareLink;
+                }
+            });
+            //Content function for loading individual stories from Country or theme
+            function fnContent(id, feed) {
+                fnPageReset();
+                fnEmailToggle();
+                fnRefreshToggle();
+                $('#content').html('<div id="story" style="display: none;"><div id="story_pubDate"></div><div id="story_title"></div><div id="story_content"></div></div>');
+                if (page == "mainContent") {
+                    var pubDate = '<div class="postDate">posted on </div><div class="pubDate" id="date' + g_ID + '">' + mainFeed[g_ID].pubDate + '</div>';
+                    $('#story_pubDate').html("");
+                    $('#story_pubDate').append(pubDate);
+                    var title = '<div class="story_title" id="title' + g_ID + '">' + mainFeed[g_ID].title + '</div>';
+                    $('#story_title').html("");
+                    $('#story_title').append(title);
+                    shareTitle = mainFeed[g_ID].title;
+                    var content = '<div class="content" id="content' + g_ID + '">' + mainFeed[g_ID].content + '</div></div>';
+                    $('#story_content').html("");
+                    $('#story_content').append(content);
+                    shareLink = mainFeed[g_ID].link;
+                    $('#error').remove();
+                    $('#content').show();
+                    $('#story').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(500);
+                    $('#red').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(500);
+                }
+                else {
+                    var paramId = id;
+                    var i = 0;
+                    try {
+                        fnShowLoader();
+                        $.ajax({
+                            url: myUrl,
+                            timeout: connTime1,
+                            dataType: 'xml',
+                            success: function (contentXml) {
+                                $(contentXml).find('item').each(function () {
+                                    i += 1;
+                                    if (i == paramId) {
+                                        $(this).find("title").each(function () {
+                                            var title = '<div class="story_title" id="title' + i + '">' + $(this).text() + '</div>';
+                                            $('#story_title').html("");
+                                            $('#story_title').append(title);
+                                            shareTitle = $(this).text();
+                                        });
+                                        $(this).find("pubDate").each(function () {
+                                            var pubDate = '<div class="postDate">posted on </div><div class="pubDate" id="date' + i + '">' + $(this).text() + '</div>';
+                                            $('#story_pubDate').html("");
+                                            $('#story_pubDate').append(pubDate);
+                                        });
+                                        $(this).find("description").each(function () {
+                                            var content = '<div class="content" id="content' + i + '">' + $(this).text() + '</div>';
+                                            $('#story_content').html("");
+                                            $('#story_content').append(content);
+                                        });
+                                        $(this).find("link").each(function () {
+                                            shareLink = $(this).text();
+                                        });
+                                        fnHideLoader();
+                                        $('#error').remove();
+                                        $('#content').show();
+                                        $('#story').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(500);
+                                        $('#red').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(500);
+                                    }
+                                });
+                            },
+                            error: function (error) {
+                                $('#error').remove();
+                                fnHideLoader();
+                                $('#red').append(connError2);
+                                $('#red').hide().animate({ scrollTop: 0 }, 50).scrollTop(0).fadeIn(500);
+                            }
+                        });
+                    }
+                    catch (err) {
+                        alert("error: " + error);
+                    }
+                    finally {
+                        fnHideLoader();
+                    }
+                }
+            }
+        }); 
+    </script>
+</head>
+<body>
+    <div id="index" data-role="page">
+        <div id="header" class="header" data-role="header" data-position="fixed" data-tap-toggle="false">
+            <ul class="header_list">
+                <li data-touchclick="true" id="back" class="icon_back"><a href="#" data-rel="back">back</a></li>
+                <li data-touchclick="true" id="refresh" class="icon_refresh"><a href="#">refresh</a></li>
+                <li data-touchclick="true" id="logo" class="wib_logo"><a href="#">logo</a></li>
+                <li data-touchclick="true" id="email" class="icon_email"><a href="#">email</a></li>
+            </ul>
+        </div>
+        <div id="loading" style="display: none;">
+        </div>
+        <div id="red" data-role="content">
+            <div id="main" style="display: none;">
+                <div id="plchdr_story" style="display: none;">
+                </div>
+                <div id="feedMain" style="display: none;">
+                    <ul>
+                    </ul>
+                </div>
+            </div>
+            <div id="categories" style="display: none;">
+                <div id="category_title" class="top_title" style="display: none;">
+                </div>
+                <div id="sections" style="display: none;">
+                    <ul>
+                    </ul>
+                </div>
+            </div>
+            <div id="articles" style="display: none;">
+                <div id="top_title" class="top_title">
+                </div>
+                <div id="artFeed" style="display: none;">
+                    <ul>
+                    </ul>
+                </div>
+            </div>
+            <div id="content" style="display: none;">
+                <div id="story" style="display: none;">
+                    <div id="story_pubDate">
+                    </div>
+                    <div id="story_title">
+                    </div>
+                    <div id="story_content">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="plchdr_footer">
+        </div>
+    </div>
+    <script type="text/javascript">
+        $("li").on("touchclick", function () {
+            $(this).html('');
+        });
+        $("li").on("touchend MSPointerUp", function () {
+            $(this).html('');
+        });
+        $("li").on("click", function () {
+            $(this).html('');
+        });
+        $("div.bottom_buttons").on("touchclick", function () {
+            $(this).html('');
+        });
+        $("div.bottom_buttons").on("touchend MSPointerUp", function () {
+            $(this).html('');
+        });
+        $("div.bottom_buttons").on("click", function () {
+            $(this).html('');
+        });
+        $("div.main_link").on("touchclick", function () {
+            $(this).html('');
+        });
+        $("div.main_link").on("touchend MSPointerUp", function () {
+            $(this).html('');
+        });
+        $("div.main_link").on("click", function () {
+            $(this).html('');
+        });
+        $("div.postDate").on("touchclick", function () {
+            $(this).html('');
+        });
+        $("div.postDate").on("touchend MSPointerUp", function () {
+            $(this).html('');
+        });
+        $("div.postDate").on("click", function () {
+            $(this).html('');
+        });
+        $("div.main_title").on("touchclick", function () {
+            $(this).html('');
+        });
+        $("div.main_title").on("touchend MSPointerUp", function () {
+            $(this).html('');
+        });
+        $("div.main_title").on("click", function () {
+            $(this).html('');
+        });
+        $("div.main_blurb").on("touchclick", function () {
+            $(this).html('');
+        });
+        $("div.main_blurb").on("touchend MSPointerUp", function () {
+            $(this).html('');
+        });
+        $("div.main_blurb").on("click", function () {
+            $(this).html('');
+        });
+    </script>
+</body>
+</html>
